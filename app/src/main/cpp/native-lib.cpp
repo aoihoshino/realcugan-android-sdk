@@ -5,10 +5,8 @@
 #include "realcugan.h"
 #include "filesystem_utils.h"
 #define STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image.h"
 #include "webp_image.h"
-#include "stb_image_write.h"
 
 #define LOG_TAG "RealCUGAN_NCNN"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
