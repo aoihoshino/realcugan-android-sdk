@@ -134,10 +134,10 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_MainActivity_initialize(
     LOGI("param file: %s", paramFull.c_str());
     LOGI("model file: %s", modelFull.c_str());
     if (access(paramFull.c_str(), F_OK) != 0 || access(modelFull.c_str(), F_OK) != 0) {
-        LOGE("模型文件不存在！");
+        LOGE("model file not found！");
         return -1;
     } else {
-        LOGI("模型加载成功！");
+        LOGI("model loaded successfully.");
     }
 
     // —— 9. 创建 RealCUGAN 并 load 模型 ——
@@ -189,7 +189,7 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_MainActivity_processImage(
                 length, &w, &h, &c, 0
         );
         if (!pixeldata) {
-            LOGE("processImage: 无法解码为 WebP，也无法通过 stb_image 解码 PNG/JPEG");
+            LOGE("processImage: not webp nor png/jpeg");
             env->ReleaseByteArrayElements(imageData, buffer, JNI_ABORT);
             return nullptr;
         }
@@ -205,7 +205,7 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_MainActivity_processImage(
     // 5) 调用模型
     ncnn::Mat out(w * scale, h * scale, (size_t)in.elemsize, c);
     if (g_realcugan->process(in, out) != 0) {
-        LOGE("processImage: 模型推理失败");
+        LOGE("processImage: model process failed");
         return nullptr;
     }
     free(pixeldata);
@@ -230,12 +230,12 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_MainActivity_processImage(
     }
 
     // 3) Copy each row from your 3‑channel Mat to the 4‑channel bitmap
-    uint8_t* dstBase = static_cast<uint8_t*>(pixels);
-    const uint8_t* srcBase = reinterpret_cast<const uint8_t*>(out.data);
-    int width  = info.width;
-    int height = info.height;
-    int dstStride = info.stride;       // bytes per row in the bitmap
-    int srcRowBytes = width * 3;       // bytes per row in your 3‑channel Mat
+    auto* dstBase = static_cast<uint8_t*>(pixels);
+    const auto* srcBase = reinterpret_cast<const uint8_t*>(out.data);
+    auto width  = info.width;
+    auto height = info.height;
+    auto dstStride = info.stride;       // bytes per row in the bitmap
+    auto srcRowBytes = width * 3;       // bytes per row in your 3‑channel Mat
 
     for (int y = 0; y < height; y++) {
         uint8_t* dstRow = dstBase + y * dstStride;
