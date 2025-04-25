@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "RealCUGAN-Android-SDK"
 include(":app")
- 
+include(":realcugan-android-sdk")

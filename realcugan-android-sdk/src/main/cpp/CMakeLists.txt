@@ -48,7 +48,7 @@ endif()
 
 # 生成主共享库
 add_library(${PROJECT_NAME} SHARED
-        native-lib.cpp
+        realcugan_ncnn_android.cpp
         realcugan.cpp
 )
 
