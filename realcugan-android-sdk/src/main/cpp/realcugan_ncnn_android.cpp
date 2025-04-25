@@ -130,8 +130,8 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
     // —— 6. 计算 tilesize ——
     int tilesize = 0;
     if (gpuId == -1) {
-        // cpu only
-        tilesize = 400;
+        // cpu only, optimised for mobile chip
+        tilesize = 200;
     } else {
         uint32_t heap = ncnn::get_gpu_device(gpuId)->get_heap_budget();
         if (scale == 2) {

@@ -15,9 +15,37 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 保留完整的 .so 符号，方便 ndk-stack 符号化 tombstone
+        ndk {
+            debugSymbolLevel = "FULL"
+        }
+
+        externalNativeBuild {
+            cmake {
+                // 传给 CMake 的参数列表
+                arguments += listOf(
+                    "-DANDROID_TOOLCHAIN=clang",
+                    "-DANDROID_STL=c++_static",
+                    "-DCMAKE_BUILD_TYPE=Debug"    // 确保是 Debug 模式
+                )
+                // 额外的编译标志（-g 开启调试符号）
+                cppFlags += listOf("-g")
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+            isJniDebuggable = true
+            externalNativeBuild {
+                cmake {
+                    // Debug 构建再确认一次
+                    arguments += "-DCMAKE_BUILD_TYPE=Debug"
+                }
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

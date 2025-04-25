@@ -14,12 +14,31 @@ android {
         consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild {
             cmake {
-                cppFlags("")
+                arguments += listOf(
+                    "-DANDROID_TOOLCHAIN=clang",
+                    "-DANDROID_STL=c++_static",
+                    "-DCMAKE_BUILD_TYPE=Debug"    // 确保是 Debug 模式
+                )
+                cppFlags += listOf("-g")
             }
+        }
+
+        ndk {
+            debugSymbolLevel = "FULL"
         }
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+            isJniDebuggable = true
+            externalNativeBuild {
+                cmake {
+                    // Debug ·
+                    arguments += "-DCMAKE_BUILD_TYPE=Debug"
+                }
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
