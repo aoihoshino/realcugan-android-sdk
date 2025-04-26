@@ -1,5 +1,6 @@
 package io.github.aoihoshino.realcugan_ncnn_android
 
+import RealCUGANOption
 import android.os.Bundle
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
@@ -26,7 +27,13 @@ class MainActivity : AppCompatActivity() {
 
         // 1) 根据 scales 创建多个实例
         realCUGANs = scales.map { scale ->
-            RealCUGAN.create(this, scale = scale, gpuId = -1)
+            RealCUGAN.create(
+                RealCUGANOption(
+                    context = this,
+                    scale = scale,
+                    gpuId = -1,
+                ),
+            )
         }
 
         // 2) 并发跑每个实例对应一个文件

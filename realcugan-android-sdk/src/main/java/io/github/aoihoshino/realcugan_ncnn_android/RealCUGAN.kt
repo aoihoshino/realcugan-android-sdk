@@ -1,6 +1,6 @@
 package io.github.aoihoshino.realcugan_ncnn_android
 
-import android.content.Context
+import RealCUGANOption
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
@@ -102,22 +102,15 @@ class RealCUGAN private constructor(
         /**
          * 拷贝 assets/models → filesDir/models，然后 new 出一句柄
          */
-        fun create(
-            context: Context,
-            noise: Int? = -1,
-            scale: Int = 2,
-            syncgap: Int? = 3,
-            modelName: String? = "models-se",
-            ttaMode: Boolean? = false,
-            gpuId: Int? = 0,
-        ): RealCUGAN {
-            val destRoot = File(context.filesDir, "models")
+        fun create(realCUGANOption: RealCUGANOption): RealCUGAN {
+            val option = realCUGANOption
+            val destRoot = File(option.context.filesDir, "models")
             if (!destRoot.exists()) {
                 destRoot.mkdirs()
-                context.assets.list("models")?.forEach { subdir ->
+                option.context.assets.list("models")?.forEach { subdir ->
                     val dstSub = File(destRoot, subdir).apply { mkdirs() }
-                    context.assets.list("models/$subdir")?.forEach { fname ->
-                        context.assets.open("models/$subdir/$fname").use { inp ->
+                    option.context.assets.list("models/$subdir")?.forEach { fname ->
+                        option.context.assets.open("models/$subdir/$fname").use { inp ->
                             FileOutputStream(File(dstSub, fname)).use { out ->
                                 inp.copyTo(out)
                             }
@@ -127,15 +120,15 @@ class RealCUGAN private constructor(
             }
             val handle = nativeInitialize(
                 destRoot.absolutePath,
-                noise,
-                scale,
-                syncgap,
-                modelName,
-                ttaMode,
-                gpuId ?: -1
+                option.noise,
+                option.scale,
+                option.syncgap,
+                option.modelName.dir,
+                option.ttaMode,
+                option.gpuId ?: -1
             )
             require(handle >= 1L) { "RealCUGAN nativeInitialize failed: $handle" }
-            return RealCUGAN(handle, scale)
+            return RealCUGAN(handle, option.scale)
         }
     }
 }

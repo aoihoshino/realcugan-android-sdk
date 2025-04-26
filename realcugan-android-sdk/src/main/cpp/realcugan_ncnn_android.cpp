@@ -39,6 +39,7 @@ void ensure_ncnn_gpu() {
 // 如果空了，就销毁 GPU 并允许下次 re-init
 void release_ncnn_gpu() {
     std::lock_guard<std::mutex> lg(gpu_mutex);
+    std::lock_guard<std::mutex> lg2(g_map_mutex);
     if (g_instances.empty() && gpu_initialized) {
         ncnn::destroy_gpu_instance();
         gpu_initialized = false;
@@ -49,21 +50,18 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
         JNIEnv *env, jclass /* this */,
         jstring modelRootDir,
-        jobject noiseObj,      // java.lang.Integer or null
-        jobject scaleObj,      // java.lang.Integer or null
-        jobject syncgapObj,    // java.lang.Integer or null
-        jstring modelNameJ,    // java.lang.String or null
-        jobject ttaModeObj,    // java.lang.Boolean or null
-        jobject gpuidObj       // java.lang.Integer or null
+        jobject noiseObj,
+        jobject scaleObj,
+        jobject syncgapObj,
+        jstring modelNameJ,
+        jobject ttaModeObj,
+        jobject gpuidObj
 ) {
-
-    // 先声明要抛出的异常类
+    // 1. 异常类
     jclass runtimeExc = env->FindClass("java/lang/RuntimeException");
-    if (!runtimeExc) {
-        return -1; // 如果连 RuntimeException 都找不到，直接回
-    }
+    if (!runtimeExc) return -1;
 
-    // —— 1. 解析 Integer 和 Boolean 包装类型 ——
+    // 2. 拆箱 Integer/Boolean
     jclass integerCls = env->FindClass("java/lang/Integer");
     jmethodID intValueID = env->GetMethodID(integerCls, "intValue", "()I");
     jclass booleanCls = env->FindClass("java/lang/Boolean");
@@ -72,11 +70,12 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
     int noise = noiseObj ? env->CallIntMethod(noiseObj, intValueID) : -1;
     int scale = scaleObj ? env->CallIntMethod(scaleObj, intValueID) : 2;
     int syncgap = syncgapObj ? env->CallIntMethod(syncgapObj, intValueID) : 3;
-    bool ttaMode = ttaModeObj != nullptr && env->CallBooleanMethod(ttaModeObj, boolValueID);
+    bool ttaMode = ttaModeObj && env->CallBooleanMethod(ttaModeObj, boolValueID);
     int numThreads = 1;
 
-    // —— 2. 创建 GPU 实例 ——
+    // 3. GPU 初始化
     int gpuId;
+    ensure_ncnn_gpu();
     if (gpuidObj) {
         int gpu_count = ncnn::get_gpu_count();
         gpuId = env->CallIntMethod(gpuidObj, intValueID);
@@ -87,50 +86,70 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
     } else {
         gpuId = ncnn::get_default_gpu_index();
     }
-    if (gpuId > -1) {
-        ensure_ncnn_gpu();
-    }
+    if (gpuId == -1) release_ncnn_gpu();
     LOGI("initialize(): using GPU %d", gpuId);
 
-    // —— 3. 参数合法性检查 ——
-    if (noise < -1 || noise > 3) {
-        LOGE("initialize(): invalid noise %d", noise);
-        release_ncnn_gpu();
-        return -1;
-    }
-    if (scale < 2 || scale > 4) {
-        LOGE("initialize(): invalid scale %d", scale);
-        release_ncnn_gpu();
-        return -1;
-    }
+    // 4. 基本边界检查（syncgap, gpuId 先行）
     if (syncgap < 0 || syncgap > 3) {
         LOGE("initialize(): invalid syncgap %d", syncgap);
         release_ncnn_gpu();
         return -1;
     }
 
-    // —— 4. 解析 modelName ——
-    std::string modelDir = "models-se";
+    // 5. 解析 modelName -> modelDir
+    std::string modelDir;
     if (modelNameJ) {
         const char *tmp = env->GetStringUTFChars(modelNameJ, nullptr);
         if (tmp && *tmp) modelDir = tmp;
         env->ReleaseStringUTFChars(modelNameJ, tmp);
     }
-    // main.cpp 里 nose 模型强制关 syncgap
+    // nose 模型强制关 syncgap
     if (modelDir == "models-nose") {
         syncgap = 0;
     }
 
-    // —— 5. 计算 prepadding ——
+    // 6. 分模型校验 scale/noise
+    if (modelDir == "models-nose") {
+        // 只允许 up2x-no-denoise
+        if (scale != 2 || noise != 0) {
+            LOGE("initialize(): models-nose only supports scale=2, noise=0");
+            release_ncnn_gpu();
+            return -1;
+        }
+    } else if (modelDir == "models-pro") {
+        // 允许 up{2,3}x-{conservative,no-denoise,denoise3x}
+        bool okScale = (scale == 2 || scale == 3);
+        bool okNoise = (noise == -1 || noise == 0 || noise == 3);
+        if (!okScale || !okNoise) {
+            LOGE("initialize(): models-pro supports scale=2..3, noise in {-1,0,3}");
+            release_ncnn_gpu();
+            return -1;
+        }
+    } else if (modelDir == "models-se") {
+        // 允许 up{2,3,4}x-{conservative,no-denoise,denoise1x..3x}
+        bool okScale = (scale >= 2 && scale <= 4);
+        bool okNoise = (noise >= -1 && noise <= 3);
+        if (!okScale || !okNoise) {
+            LOGE("initialize(): models-se supports scale=2..4, noise in -1..3");
+            release_ncnn_gpu();
+            return -1;
+        }
+    } else {
+        LOGE("initialize(): unknown modelDir '%s'", modelDir.c_str());
+        release_ncnn_gpu();
+        return -1;
+    }
+
+    // 7. 计算 prepadding
     int prepadding = 0;
     if (scale == 2) prepadding = 18;
     else if (scale == 3) prepadding = 14;
     else if (scale == 4) prepadding = 19;
 
-    // —— 6. 计算 tilesize ——
+    // 8. 计算 tilesize (不变)
+
     int tilesize = 0;
     if (gpuId == -1) {
-        // cpu only, optimised for mobile chip
         tilesize = 200;
     } else {
         uint32_t heap = ncnn::get_gpu_device(gpuId)->get_heap_budget();
@@ -146,7 +165,7 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
             else if (heap > 950) tilesize = 200;
             else if (heap > 320) tilesize = 100;
             else tilesize = 32;
-        } else { // scale == 4
+        } else /* scale==4 */ {
             if (heap > 1690) tilesize = 400;
             else if (heap > 980) tilesize = 300;
             else if (heap > 530) tilesize = 200;
@@ -155,7 +174,7 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
         }
     }
 
-    // —— 7. 构造模型文件路径 ——
+    // 9. 构造 param/bin 路径 & load 模型 … (不变)
     const char *root = env->GetStringUTFChars(modelRootDir, nullptr);
     char parampath[256], modelpath[256];
     if (noise == -1) {
@@ -168,24 +187,17 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
         sprintf(parampath, "%s/%s/up%dx-denoise%dx.param", root, modelDir.c_str(), scale, noise);
         sprintf(modelpath, "%s/%s/up%dx-denoise%dx.bin", root, modelDir.c_str(), scale, noise);
     }
-    path_t paramFull = sanitize_filepath(parampath);
-    path_t modelFull = sanitize_filepath(modelpath);
-
-    LOGI("initialize(): noise=%d scale=%d syncgap=%d ttaMode=%d numThreads=%d prepadding=%d tilesize=%d model=%s",
-         noise, scale, syncgap, ttaMode, numThreads, prepadding, tilesize, modelDir.c_str());
-
-    LOGI("param file: %s", paramFull.c_str());
-    LOGI("model file: %s", modelFull.c_str());
-    if (access(paramFull.c_str(), F_OK) != 0 || access(modelFull.c_str(), F_OK) != 0) {
-        LOGE("model file not found！");
-        return -1;
-    } else {
-        LOGI("model loaded successfully.");
-    }
-
     env->ReleaseStringUTFChars(modelRootDir, root);
 
-    // —— 8. 创建 RealCUGAN 并 load 模型 ——
+    path_t paramFull = sanitize_filepath(parampath);
+    path_t modelFull = sanitize_filepath(modelpath);
+    if (access(paramFull.c_str(), F_OK) || access(modelFull.c_str(), F_OK)) {
+        LOGE("model file not found: %s / %s", paramFull.c_str(), modelFull.c_str());
+        release_ncnn_gpu();
+        return -1;
+    }
+
+    // 10. 实例化 RealCUGAN 并 load
     auto *inst = new RealCUGAN(gpuId, ttaMode, numThreads);
     inst->noise = noise;
     inst->scale = scale;
@@ -200,28 +212,22 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
         release_ncnn_gpu();
         return ret;
     }
+
+    // 11. 注册实例并返回 handle
     jlong handle;
     try {
-        std::lock_guard<std::mutex> lg_next_handle(handler_mutex);
+        std::lock_guard<std::mutex> lg(handler_mutex);
         handle = next_handle++;
-        {
-            std::lock_guard lg_map(g_map_mutex);
-            g_instances[handle] = inst;
-        }
+        std::lock_guard<std::mutex> lg2(g_map_mutex);
+        g_instances[handle] = inst;
     }
     catch (const std::exception &e) {
-        // C++ 异常
         env->ThrowNew(runtimeExc, e.what());
         return -1;
     }
-    catch (...) {
-        // 任何其他崩溃
-        env->ThrowNew(runtimeExc, "Unknown native error in RealCUGAN");
-        return -1;
-    }
-    LOGI("initialize: RealCUGAN::load succeeded");
     return handle;
 }
+
 
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeProcessImage(
