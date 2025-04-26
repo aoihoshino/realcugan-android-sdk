@@ -125,7 +125,7 @@ class RealCUGAN private constructor(
                 option.syncgap,
                 option.modelName.dir,
                 option.ttaMode,
-                option.gpuId ?: -1
+                option.gpuId
             )
             require(handle >= 1L) { "RealCUGAN nativeInitialize failed: $handle" }
             return RealCUGAN(handle, option.scale)

@@ -148,31 +148,70 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
 
     // 8. 计算 tilesize (不变)
 
-    int tilesize = 0;
+    int tilesize = 200;
     if (gpuId == -1) {
         tilesize = 200;
     } else {
-        uint32_t heap = ncnn::get_gpu_device(gpuId)->get_heap_budget();
-        if (scale == 2) {
-            if (heap > 1300) tilesize = 400;
-            else if (heap > 800) tilesize = 300;
-            else if (heap > 400) tilesize = 200;
-            else if (heap > 200) tilesize = 100;
-            else tilesize = 32;
-        } else if (scale == 3) {
-            if (heap > 3300) tilesize = 400;
-            else if (heap > 1900) tilesize = 300;
-            else if (heap > 950) tilesize = 200;
-            else if (heap > 320) tilesize = 100;
-            else tilesize = 32;
-        } else /* scale==4 */ {
-            if (heap > 1690) tilesize = 400;
-            else if (heap > 980) tilesize = 300;
-            else if (heap > 530) tilesize = 200;
-            else if (heap > 240) tilesize = 100;
-            else tilesize = 32;
+        ncnn::VulkanDevice *vkdev = ncnn::get_gpu_device(gpuId);
+
+        // 读取 Vulkan 物理设备属性
+        const ncnn::GpuInfo &props = vkdev->info;
+
+        uint32_t heap;
+        // Qualcomm 的 vendorID 通常是 0x5143，或者 deviceName 中包含 "Adreno"
+        bool isQualcomm = props.vendor_id() == 0x5143
+                          || std::string(props.device_name()).find("Adreno") != std::string::npos;
+        if (isQualcomm) {
+            // … 前面初始化 VulkanDevice vkdev …
+            float heapMB = 0.f;
+            if (props.support_VK_EXT_memory_priority() && props.support_VK_EXT_memory_budget()) {
+                // 使用扩展取真实预算
+                VkPhysicalDeviceMemoryProperties2 mem2{
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2};
+                VkPhysicalDeviceMemoryBudgetPropertiesEXT bud{
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT};
+                mem2.pNext = &bud;
+                ncnn::vkGetPhysicalDeviceMemoryProperties(props.physical_device(),
+                                                          &mem2.memoryProperties);
+                heapMB = bud.heapBudget[0] / float(1024 * 1024);
+            } else {
+                // Fallback：用总显存的 80%
+                VkPhysicalDeviceMemoryProperties mp{};
+                ncnn::vkGetPhysicalDeviceMemoryProperties(props.physical_device(), &mp);
+                for (uint32_t i = 0; i < mp.memoryHeapCount; i++) {
+                    if (mp.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+                        heapMB = (mp.memoryHeaps[i].size * 0.8f) / float(1024 * 1024 * 8);
+                        break;
+                    }
+                }
+            }
+            heap = heapMB;
+            tilesize = (int) (heap / scale);
+        } else {
+            heap = vkdev->get_heap_budget();
+            if (scale == 2) {
+                if (heap > 1300) tilesize = 400;
+                else if (heap > 800) tilesize = 300;
+                else if (heap > 400) tilesize = 200;
+                else if (heap > 200) tilesize = 100;
+                else tilesize = 32;
+            } else if (scale == 3) {
+                if (heap > 3300) tilesize = 400;
+                else if (heap > 1900) tilesize = 300;
+                else if (heap > 950) tilesize = 200;
+                else if (heap > 320) tilesize = 100;
+                else tilesize = 32;
+            } else {
+                if (heap > 1690) tilesize = 400;
+                else if (heap > 980) tilesize = 300;
+                else if (heap > 530) tilesize = 200;
+                else if (heap > 240) tilesize = 100;
+                else tilesize = 32;
+            }
         }
+        LOGI("heap=%u", heap);
     }
+
 
     // 9. 构造 param/bin 路径 & load 模型 … (不变)
     const char *root = env->GetStringUTFChars(modelRootDir, nullptr);

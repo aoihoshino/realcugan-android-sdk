@@ -2,13 +2,15 @@ package io.github.aoihoshino.realcugan_ncnn_android
 
 import RealCUGANOption
 import android.os.Bundle
+import android.util.Log
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.time.measureTime
 
 class MainActivity : AppCompatActivity() {
     companion object {
@@ -30,8 +32,7 @@ class MainActivity : AppCompatActivity() {
             RealCUGAN.create(
                 RealCUGANOption(
                     context = this,
-                    scale = scale,
-                    gpuId = -1,
+                    scale = scale
                 ),
             )
         }
@@ -52,14 +53,17 @@ class MainActivity : AppCompatActivity() {
             }
 
             // 等待并依次更新 UI
+            val timeCost = measureTime {
             for (job in jobs) {
-                val (filename, bmp) = job.await()
-                // Main 线程更新界面
-                withContext(Dispatchers.Main) {
-                    imageView.setImageBitmap(bmp)
+                    val (filename, bmp) = job.await()
+                    // Main 线程更新界面
+                    withContext(Dispatchers.Main) {
+                        imageView.setImageBitmap(bmp)
+                    }
+                    Log.i(TAG, "Processed $filename → ${bmp.width}×${bmp.height}")
                 }
-                android.util.Log.i(TAG, "Processed $filename → ${bmp.width}×${bmp.height}")
             }
+            Log.i(TAG, "Processed all jobs in $timeCost")
         }
     }
 

@@ -70,17 +70,17 @@ enum class ModelName(val dir: String, val allowedScales: IntRange, val allowedNo
  */
 class RealCUGANOption(
     val context: Context,
-    val noise: Int = -1,
+    val noise: Int? = -1,
     val scale: Int = 2,
-    val syncgap: Int = 3,
+    val syncgap: Int? = 3,
     val modelName: ModelName = ModelName.SE,
     val ttaMode: Boolean = false,
-    val gpuId: Int = 0
+    val gpuId: Int? = null,
 ) {
 
     init {
         require(syncgap in 0..3) { "syncgap 必须在 0..3 之间，但传入是 $syncgap" }
-        require(gpuId >= -1) { "gpuId 必须 >= -1，但传入是 $gpuId" }
+        require(gpuId == null || gpuId >= -1) { "gpuId 必须 >= -1，但传入是 $gpuId" }
 
         require(scale in modelName.allowedScales) {
             "在 ${modelName.dir} 下，scale 必须在 ${modelName.allowedScales} 中，但传入的是 $scale"
