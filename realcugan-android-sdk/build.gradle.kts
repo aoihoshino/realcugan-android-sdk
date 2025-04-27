@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    `maven-publish`
 }
 
 group = "io.github.aoihoshino"
@@ -75,4 +76,19 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     testImplementation(libs.mockito.core)
     testImplementation(libs.mockito.inline)
+}
+
+afterEvaluate {
+    // 确保 android 扩展已经配置完毕
+    android.libraryVariants.forEach { variant ->
+        // 用 Kotlin 泛型方式创建 Publication
+        publishing.publications.create<MavenPublication>(variant.name) {
+            // 从对应的组件打包
+            from(components.getByName(variant.name))
+            // 三个属性直接赋值（确保 project.groupId、project.artifactId 在上面已声明）
+            groupId = project.group.toString()
+            artifactId = "realcugan-android-sdk"
+            version = project.version.toString()
+        }
+    }
 }
