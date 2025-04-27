@@ -1,5 +1,4 @@
 install:
   - sdk install java 17.0.8-tem
   - sdk use     java 17.0.8-tem
-  - cd realcugan-android-sdk
-  - ./gradlew clean assembleRelease
+  - ./gradlew clean :realcugan-android-sdk:assembleRelease
