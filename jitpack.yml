@@ -1,5 +1,2 @@
 jdk:
   - openjdk17
-
-install:
-  - ./gradlew clean build publishToMavenLocal -Dorg.gradle.java.home="/home/jitpack/tools/jdk17"
