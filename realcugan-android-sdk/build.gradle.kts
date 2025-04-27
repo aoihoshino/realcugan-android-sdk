@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-group = "com.github.aoihoshino"
+group = "io.github.aoihoshino"
 version = "1.0.0"
 
 android {
