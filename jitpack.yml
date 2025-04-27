@@ -1,7 +1,2 @@
 jdk:
-  - openjdk17
-before_install:
-  - ./scripts/prepareJitpackEnvironment.sh
-install:
-  - chmod +x gradlew
-  - ./gradlew clean :realcugan-android-sdk:assembleRelease
+  - openjdk11
