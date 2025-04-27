@@ -1,4 +1,10 @@
 install:
   - sdk install java 17.0.8-tem
   - sdk use     java 17.0.8-tem
+  - export JAVA_HOME="$HOME/.sdkman/candidates/java/17.0.8-tem"
+  - export PATH="$JAVA_HOME/bin:$PATH"
+
+  - chmod +x gradlew
+
+  - ./gradlew -v
   - ./gradlew clean :realcugan-android-sdk:assembleRelease
