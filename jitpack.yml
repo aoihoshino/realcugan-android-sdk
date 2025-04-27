@@ -5,4 +5,4 @@ before_install:
   - export JAVA_HOME="/home/jitpack/tools/jdk17"
   - export PATH="$JAVA_HOME/bin:$PATH"
   - java -version
-  - echo "org.gradle.java.home=$HOME/.sdkman/candidates/java/17.0.8-tem" >> gradle.properties
+  - echo "org.gradle.java.home=/home/jitpack/tools/jdk17" >> gradle.properties
