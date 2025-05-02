@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "io.github.aoihoshino"
-version = "1.0.1"
+version = "1.0.2"
 
 android {
     namespace = "io.github.aoihoshino.realcugan_ncnn_android"
