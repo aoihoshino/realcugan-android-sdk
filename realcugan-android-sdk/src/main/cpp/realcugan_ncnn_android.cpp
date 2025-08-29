@@ -58,7 +58,7 @@ struct CUGANParams {
                && modelDir == o.modelDir;
     }
 
-    std::string toString() const {
+    [[nodiscard]] std::string toString() const {
         std::ostringstream oss;
         oss << "CUGANParams{"
             << "noise=" << noise << ", "

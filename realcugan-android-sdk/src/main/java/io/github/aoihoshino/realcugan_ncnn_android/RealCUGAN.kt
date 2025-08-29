@@ -41,10 +41,11 @@ class RealCUGAN private constructor(
      */
     suspend fun process(imageData: ByteArray, onProgressListener: ProgressListener? = null): Bitmap =
         withContext(Dispatchers.IO) {
-            // 1) 先解一次头，拿到原始尺寸
-            val srcBmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
-            val outW = srcBmp.width * scaleFactor
-            val outH = srcBmp.height * scaleFactor
+            // 1) 只解码尺寸信息，避免为拿宽高而分配整幅 Bitmap
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(imageData, 0, imageData.size, opts)
+            val outW = opts.outWidth * scaleFactor
+            val outH = opts.outHeight * scaleFactor
 
             // 2) 真正跑 native 推理，只在 gpuDispatcher 线程池
             val raw = withContext(gpuDispatcher) {
@@ -62,7 +63,7 @@ class RealCUGAN private constructor(
                 }
                 // RGB → 补 alpha
                 outW * outH * 3 -> {
-                    val buf = ByteBuffer.allocate(outW * outH * 4)
+                    val buf = ByteBuffer.allocateDirect(outW * outH * 4)
                     var i = 0
                     repeat(outW * outH) {
                         buf.put(raw[i++])
@@ -73,7 +74,7 @@ class RealCUGAN private constructor(
                     buf.rewind()
                     outBmp.copyPixelsFromBuffer(buf)
                 }
-
+                // 非预期的像素缓冲大小：通常意味着 native 输出尺寸或通道数与推断不一致（例如 alpha/stride/order 错配）
                 else -> throw RuntimeException(
                     "Unexpected pixel buffer size: ${raw.size}, expected ${outW * outH * 3} or ${outW * outH * 4}"
                 )
