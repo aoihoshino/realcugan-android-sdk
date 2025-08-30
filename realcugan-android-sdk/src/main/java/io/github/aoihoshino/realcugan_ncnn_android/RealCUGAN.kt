@@ -13,7 +13,6 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 
 @Keep
@@ -22,8 +21,7 @@ fun interface ProgressListener {
 }
 
 class RealCUGAN private constructor(
-    private val nativeHandle: Long,
-    private val scaleFactor: Int
+    private val nativeHandle: Long, private val scaleFactor: Int
 ) {
     // 只有调用 nativeProcessImage 部分运行在这个 dispatcher 上
     private val gpuDispatcher: CoroutineDispatcher by lazy {
@@ -39,49 +37,29 @@ class RealCUGAN private constructor(
      * 对一段 PNG/JPEG/WebP 的字节做推理，返回 ARGB_8888 的 Bitmap。
      * 全流程：头部解码 → JNI 计算(切到 gpuDispatcher) → 拼装输出 Bitmap
      */
-    suspend fun process(imageData: ByteArray, onProgressListener: ProgressListener? = null): Bitmap =
-        withContext(Dispatchers.IO) {
-            // 1) 只解码尺寸信息，避免为拿宽高而分配整幅 Bitmap
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(imageData, 0, imageData.size, opts)
-            val outW = opts.outWidth * scaleFactor
-            val outH = opts.outHeight * scaleFactor
+    suspend fun process(
+        imageData: ByteArray, onProgressListener: ProgressListener? = null
+    ): Bitmap = withContext(Dispatchers.IO) {
+// 1) 解码为 SOFTWARE + ARGB_8888 + 可写的 Bitmap（避免硬件位图导致无法锁像素）
+        val inBmp = BitmapFactory.decodeByteArray(
+            imageData, 0, imageData.size, BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+                inMutable = true
+            }) ?: throw RuntimeException("decode bitmap failed")
 
-            // 2) 真正跑 native 推理，只在 gpuDispatcher 线程池
-            val raw = withContext(gpuDispatcher) {
-                nativeProcessImage(nativeHandle, imageData, onProgressListener)
-            }
+        val outW = inBmp.width * scaleFactor
+        val outH = inBmp.height * scaleFactor
+        val outBmp = createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
 
-            // 3) 拼装输出 Bitmap（IO 线程）
-            val outBmp = createBitmap(outW, outH)
-            when (raw.size) {
-                // RGBA
-                outW * outH * 4 -> {
-                    ByteBuffer
-                        .wrap(raw)
-                        .let { outBmp.copyPixelsFromBuffer(it) }
-                }
-                // RGB → 补 alpha
-                outW * outH * 3 -> {
-                    val buf = ByteBuffer.allocateDirect(outW * outH * 4)
-                    var i = 0
-                    repeat(outW * outH) {
-                        buf.put(raw[i++])
-                        buf.put(raw[i++])
-                        buf.put(raw[i++])
-                        buf.put(0xFF.toByte())
-                    }
-                    buf.rewind()
-                    outBmp.copyPixelsFromBuffer(buf)
-                }
-                // 非预期的像素缓冲大小：通常意味着 native 输出尺寸或通道数与推断不一致（例如 alpha/stride/order 错配）
-                else -> throw RuntimeException(
-                    "Unexpected pixel buffer size: ${raw.size}, expected ${outW * outH * 3} or ${outW * outH * 4}"
-                )
-            }
-            Log.i("RealCUGAN", "process → Bitmap ready $outW×$outH")
-            outBmp
+// 2) 真正跑 native 推理，只在 gpuDispatcher 线程池
+        val ok = withContext(gpuDispatcher) {
+            nativeProcessBitmap(nativeHandle, inBmp, outBmp, onProgressListener)
         }
+        if (!ok) throw RuntimeException("nativeProcessBitmap failed")
+
+        Log.i("RealCUGAN", "process(Bitmap path) → $outW×$outH ready")
+        outBmp
+    }
 
     fun release() {
         nativeRelease(nativeHandle)
@@ -100,11 +78,12 @@ class RealCUGAN private constructor(
         ): Long
 
         @JvmStatic
-        private external fun nativeProcessImage(
+        private external fun nativeProcessBitmap(
             handle: Long,
-            imageData: ByteArray,
-            progressListener: ProgressListener?
-        ): ByteArray
+            inBitmap: Bitmap,
+            outBitmap: Bitmap,
+            progressListener: ProgressListener? = null
+        ): Boolean
 
         @JvmStatic
         private external fun nativeRelease(handle: Long)

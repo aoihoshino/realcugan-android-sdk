@@ -856,6 +856,23 @@ int RealCUGAN::process_cpu(const ncnn::Mat &inimage, ncnn::Mat &outimage,
                                               in_alpha_tile_nocrop,
                                               pad_top, pad_bottom, pad_left, pad_right,
                                               opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
                     }
                 }
 
@@ -1053,10 +1070,27 @@ int RealCUGAN::process_cpu(const ncnn::Mat &inimage, ncnn::Mat &outimage,
                     // alpha tile cut to nopad
                     if (channels == 4) {
                         ncnn::copy_cut_border(
-                            in_alpha_tile,
-                            in_alpha_tile_nocrop,
-                            pad_top, pad_bottom, pad_left, pad_right,
-                            opt);
+                                in_alpha_tile,
+                                in_alpha_tile_nocrop,
+                                pad_top, pad_bottom, pad_left, pad_right,
+                                opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
                     }
                 }
 
@@ -1074,6 +1108,23 @@ int RealCUGAN::process_cpu(const ncnn::Mat &inimage, ncnn::Mat &outimage,
                                           in_alpha_tile_nocrop,
                                           pad_top, pad_bottom, pad_left, pad_right,
                                           net.opt);
+                    // ensure alpha tile matches nopad size to avoid OOB
+                    if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                        in_alpha_tile_nocrop.h != tile_h_nopad) {
+                        int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                        int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                        int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                        int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                        int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                        int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                        if (fix_left || fix_right || fix_top || fix_bottom) {
+                            ncnn::Mat _alpha_fix;
+                            ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                  fix_top, fix_bottom, fix_left, fix_right,
+                                                  net.opt);
+                            in_alpha_tile_nocrop = _alpha_fix;
+                        }
+                    }
                 }
 
                 // realcugan
@@ -2744,14 +2795,31 @@ RealCUGAN::process_cpu_se_stage0(const ncnn::Mat &inimage, const std::vector<std
                                            pad_left, pad_right, 2, 0.f, net.opt);
                     in_tile[0] = in_tile_padded;
 
-                // alpha tile cut to nopad
-                if (channels == 4) {
-                    ncnn::copy_cut_border(in_alpha_tile,
-                                          in_alpha_tile_nocrop,
-                                          pad_top, pad_bottom, pad_left, pad_right,
-                                          opt);
+                    // alpha tile cut to nopad
+                    if (channels == 4) {
+                        ncnn::copy_cut_border(in_alpha_tile,
+                                              in_alpha_tile_nocrop,
+                                              pad_top, pad_bottom, pad_left, pad_right,
+                                              opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
+                    }
                 }
-}
 
                 // the other 7 directions
                 {
@@ -2860,10 +2928,27 @@ RealCUGAN::process_cpu_se_stage0(const ncnn::Mat &inimage, const std::vector<std
                     // alpha tile cut to nopad
                     if (channels == 4) {
                         ncnn::copy_cut_border(
-                            in_alpha_tile,
-                            in_alpha_tile_nocrop,
-                            pad_top, pad_bottom, pad_left, pad_right,
-                            opt);
+                                in_alpha_tile,
+                                in_alpha_tile_nocrop,
+                                pad_top, pad_bottom, pad_left, pad_right,
+                                opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
                     }
                 }
 
@@ -2906,6 +2991,7 @@ RealCUGAN::process_cpu_se_stage2(const ncnn::Mat &inimage, const std::vector<std
     const int TILE_SIZE_Y = tilesize;
 
     ncnn::Option opt = net.opt;
+    const size_t __out_total_bytes = (size_t) outimage.w * (size_t) outimage.h * (size_t) channels;
 
     // each tile 400x400
     const int xtiles = (w + TILE_SIZE_X - 1) / TILE_SIZE_X;
@@ -3003,14 +3089,31 @@ RealCUGAN::process_cpu_se_stage2(const ncnn::Mat &inimage, const std::vector<std
                                            pad_left, pad_right, 2, 0.f, net.opt);
                     in_tile[0] = in_tile_padded;
 
-                // alpha tile cut to nopad
-                if (channels == 4) {
-                    ncnn::copy_cut_border(in_alpha_tile,
-                                          in_alpha_tile_nocrop,
-                                          pad_top, pad_bottom, pad_left, pad_right,
-                                          opt);
+                    // alpha tile cut to nopad
+                    if (channels == 4) {
+                        ncnn::copy_cut_border(in_alpha_tile,
+                                              in_alpha_tile_nocrop,
+                                              pad_top, pad_bottom, pad_left, pad_right,
+                                              opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
+                    }
                 }
-}
 
                 // the other 7 directions
                 {
@@ -3170,8 +3273,19 @@ RealCUGAN::process_cpu_se_stage2(const ncnn::Mat &inimage, const std::vector<std
                     }
 
                     if (channels == 4) {
-                        memcpy(out.channel_range(3, 1), out_alpha_tile,
-                               out_alpha_tile.total() * sizeof(float));
+                        float *__alpha_dst = out.channel(3);
+                        const float *__alpha_src = (const float *) out_alpha_tile.data;
+                        const size_t __dst_elems = (size_t) out.w * (size_t) out.h;
+                        const size_t __src_elems = (size_t) out_alpha_tile.total();
+                        const size_t __copy_elems =
+                                __src_elems < __dst_elems ? __src_elems : __dst_elems;
+                        if (__src_elems != __dst_elems) {
+                            LOGW("stage2(TTA) alpha size mismatch: dst=%zu src=%zu", __dst_elems,
+                                 __src_elems);
+                        }
+                        if (__copy_elems > 0)
+                            memcpy((void *) __alpha_dst, (const void *) __alpha_src,
+                                   __copy_elems * sizeof(float));
                     }
                 }
             } else {
@@ -3213,10 +3327,27 @@ RealCUGAN::process_cpu_se_stage2(const ncnn::Mat &inimage, const std::vector<std
                     // alpha tile cut to nopad
                     if (channels == 4) {
                         ncnn::copy_cut_border(
-                            in_alpha_tile,
-                            in_alpha_tile_nocrop,
-                            pad_top, pad_bottom, pad_left, pad_right,
-                            opt);
+                                in_alpha_tile,
+                                in_alpha_tile_nocrop,
+                                pad_top, pad_bottom, pad_left, pad_right,
+                                opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
                     }
                 }
 
@@ -3285,31 +3416,49 @@ RealCUGAN::process_cpu_se_stage2(const ncnn::Mat &inimage, const std::vector<std
                     }
 
                     if (channels == 4) {
-                        memcpy(out.channel_range(3, 1), out_alpha_tile,
-                               out_alpha_tile.total() * sizeof(float));
+                        float *__alpha_dst = out.channel(3);
+                        const float *__alpha_src = (const float *) out_alpha_tile.data;
+                        const size_t __dst_elems = (size_t) out.w * (size_t) out.h;
+                        const size_t __src_elems = (size_t) out_alpha_tile.total();
+                        const size_t __copy_elems =
+                                __src_elems < __dst_elems ? __src_elems : __dst_elems;
+                        if (__src_elems != __dst_elems) {
+                            LOGW("stage2(TTA) alpha size mismatch: dst=%zu src=%zu", __dst_elems,
+                                 __src_elems);
+                        }
+                        if (__copy_elems > 0)
+                            memcpy((void *) __alpha_dst, (const void *) __alpha_src,
+                                   __copy_elems * sizeof(float));
                     }
                 }
             }
-
             {
-                if (channels == 3) {
+                const size_t dst_stride = (size_t) w * (size_t) scale * (size_t) channels;
+                unsigned char *__dst_base = (unsigned char *) outimage.data
+                                            + (size_t) yi * (size_t) scale * (size_t) TILE_SIZE_Y *
+                                              dst_stride
+                                            + (size_t) xi * (size_t) scale * (size_t) TILE_SIZE_X *
+                                              (size_t) channels;
+
+                const size_t __need = (size_t) (out.h ? out.h - 1 : 0) * dst_stride +
+                                      (size_t) out.w * (size_t) channels;
+                const size_t __offset = (size_t) (__dst_base - (unsigned char *) outimage.data);
+
+                if (__offset + __need > __out_total_bytes) {
+                    LOGE("stage2: to_pixels OOB prevented (tile=%dx%d yi=%d xi=%d) off=%zu need=%zu buf=%zu; skip this tile",
+                         out.w, out.h, yi, xi, __offset, __need, __out_total_bytes);
+                    // 保守处理：不写回，避免崩溃。上层仍继续处理其它 tile。
+                } else {
 #if _WIN32
-                    out.to_pixels((unsigned char*)outimage.data + yi * scale * TILE_SIZE_Y * w * scale * channels + xi * scale * TILE_SIZE_X * channels, ncnn::Mat::PIXEL_RGB2BGR, w * scale * channels);
+                    if (channels == 3)
+                        out.to_pixels(__dst_base, ncnn::Mat::PIXEL_RGB2BGR, (int)dst_stride);
+                    else
+                        out.to_pixels(__dst_base, ncnn::Mat::PIXEL_RGBA2BGRA, (int)dst_stride);
 #else
-                    out.to_pixels((unsigned char *) outimage.data +
-                                  yi * scale * TILE_SIZE_Y * w * scale * channels +
-                                  xi * scale * TILE_SIZE_X * channels, ncnn::Mat::PIXEL_RGB,
-                                  w * scale * channels);
-#endif
-                }
-                if (channels == 4) {
-#if _WIN32
-                    out.to_pixels((unsigned char*)outimage.data + yi * scale * TILE_SIZE_Y * w * scale * channels + xi * scale * TILE_SIZE_X * channels, ncnn::Mat::PIXEL_RGBA2BGRA, w * scale * channels);
-#else
-                    out.to_pixels((unsigned char *) outimage.data +
-                                  yi * scale * TILE_SIZE_Y * w * scale * channels +
-                                  xi * scale * TILE_SIZE_X * channels, ncnn::Mat::PIXEL_RGBA,
-                                  w * scale * channels);
+                    if (channels == 3)
+                        out.to_pixels(__dst_base, ncnn::Mat::PIXEL_RGB, (int) dst_stride);
+                    else
+                        out.to_pixels(__dst_base, ncnn::Mat::PIXEL_RGBA, (int) dst_stride);
 #endif
                 }
             }
@@ -3520,14 +3669,31 @@ int RealCUGAN::process_cpu_se_very_rough_stage0(const ncnn::Mat &inimage,
                                            pad_left, pad_right, 2, 0.f, net.opt);
                     in_tile[0] = in_tile_padded;
 
-                // alpha tile cut to nopad
-                if (channels == 4) {
-                    ncnn::copy_cut_border(in_alpha_tile,
-                                          in_alpha_tile_nocrop,
-                                          pad_top, pad_bottom, pad_left, pad_right,
-                                          opt);
+                    // alpha tile cut to nopad
+                    if (channels == 4) {
+                        ncnn::copy_cut_border(in_alpha_tile,
+                                              in_alpha_tile_nocrop,
+                                              pad_top, pad_bottom, pad_left, pad_right,
+                                              opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
+                    }
                 }
-}
 
                 // the other 7 directions
                 {
@@ -3633,14 +3799,31 @@ int RealCUGAN::process_cpu_se_very_rough_stage0(const ncnn::Mat &inimage,
                                            pad_right, 2, 0.f, net.opt);
                     in_tile = in_tile_padded;
 
-                // alpha tile cut to nopad
-                if (channels == 4) {
-                    ncnn::copy_cut_border(in_alpha_tile,
-                                          in_alpha_tile_nocrop,
-                                          pad_top, pad_bottom, pad_left, pad_right,
-                                          opt);
+                    // alpha tile cut to nopad
+                    if (channels == 4) {
+                        ncnn::copy_cut_border(in_alpha_tile,
+                                              in_alpha_tile_nocrop,
+                                              pad_top, pad_bottom, pad_left, pad_right,
+                                              opt);
+                        // ensure alpha tile matches nopad size to avoid OOB
+                        if (in_alpha_tile_nocrop.w != tile_w_nopad ||
+                            in_alpha_tile_nocrop.h != tile_h_nopad) {
+                            int extra_w = in_alpha_tile_nocrop.w - tile_w_nopad;
+                            int extra_h = in_alpha_tile_nocrop.h - tile_h_nopad;
+                            int fix_left = extra_w > 0 ? extra_w / 2 : 0;
+                            int fix_right = extra_w > 0 ? extra_w - fix_left : 0;
+                            int fix_top = extra_h > 0 ? extra_h / 2 : 0;
+                            int fix_bottom = extra_h > 0 ? extra_h - fix_top : 0;
+                            if (fix_left || fix_right || fix_top || fix_bottom) {
+                                ncnn::Mat _alpha_fix;
+                                ncnn::copy_cut_border(in_alpha_tile_nocrop, _alpha_fix,
+                                                      fix_top, fix_bottom, fix_left, fix_right,
+                                                      opt);
+                                in_alpha_tile_nocrop = _alpha_fix;
+                            }
+                        }
+                    }
                 }
-}
 
                 {
                     ncnn::Extractor ex = net.create_extractor();

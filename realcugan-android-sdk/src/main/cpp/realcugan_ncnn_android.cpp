@@ -20,24 +20,27 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 struct ProgressCallback {
-    JavaVM* vm = nullptr;
+    JavaVM *vm = nullptr;
     jobject cbGlobal = nullptr;         // Global ref to the ProgressListener object
     jmethodID midOnProgressF = nullptr; // void onProgress(float)
 };
 
-static void call_progress(ProgressCallback* pcb, float percent) {
+static void call_progress(ProgressCallback *pcb, float percent) {
     if (!pcb || !pcb->cbGlobal || !pcb->midOnProgressF) return;
 
-    JNIEnv* env = nullptr;
+    JNIEnv *env = nullptr;
     bool didAttach = false;
-    if (pcb->vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+    if (pcb->vm->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
         if (pcb->vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
         didAttach = true;
     }
 
     env->CallVoidMethod(pcb->cbGlobal, pcb->midOnProgressF, percent);
 
-    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
     if (didAttach) pcb->vm->DetachCurrentThread();
 }
 
@@ -135,7 +138,7 @@ RealCUGAN *find_realcugan(jlong handle) {
             if (kv.second.handle == handle) {
                 inst = kv.second.inst;
                 LOGI("found realcugan: handle=%ld inst=%p options=%s",
-                     (long)handle, (void*)inst, kv.first.toString().c_str());
+                     (long) handle, (void *) inst, kv.first.toString().c_str());
                 break;
             }
         }
@@ -381,153 +384,184 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
 }
 
 
-extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeProcessImage(
+// ---------- Bitmap lock helpers (RGBA_8888 + SOFTWARE) ----------
+static bool lockBitmapRGBA8888(JNIEnv *env, jobject bitmap,
+                               AndroidBitmapInfo *info, void **pixels) {
+    *pixels = nullptr;
+    memset(info, 0, sizeof(*info));
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+
+    const int gi = AndroidBitmap_getInfo(env, bitmap, info);
+    if (gi != ANDROID_BITMAP_RESULT_SUCCESS) return false;
+#if __ANDROID_API__ >= 26
+    if (info->flags & ANDROID_BITMAP_FLAGS_IS_HARDWARE) return false;
+#endif
+    if (info->format != ANDROID_BITMAP_FORMAT_RGBA_8888) return false;
+
+    const int rc = AndroidBitmap_lockPixels(env, bitmap, pixels);
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return false;
+    }
+    return rc == ANDROID_BITMAP_RESULT_SUCCESS;
+}
+
+static void unlockBitmap(JNIEnv *env, jobject bitmap) {
+    (void) AndroidBitmap_unlockPixels(env, bitmap);
+}
+
+// ---------- Preferred path: Bitmap -> ncnn::Mat -> Bitmap ----------
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeProcessBitmap(
         JNIEnv *env, jclass /*clazz*/,
         jlong handle,
-        jbyteArray imageData,
+        jobject inBitmap,   // ARGB_8888, mutable, SOFTWARE
+        jobject outBitmap,  // ARGB_8888, mutable, SOFTWARE (size = in*scale)
         jobject onProgressFunction) {
-    // —— 1) 找到对应的 RealCUGAN 实例 —————————————
-    // 1) Find the right instance under lock
-    // 先声明要抛出的异常类
+
     jclass runtimeExc = env->FindClass("java/lang/RuntimeException");
-    if (!runtimeExc) {
-        return nullptr; // 如果连 RuntimeException 都找不到，直接回
-    }
+    if (!runtimeExc) return JNI_FALSE;
+
     RealCUGAN *inst = find_realcugan(handle);
     if (!inst) {
-        LOGE("processImage: instance of handle %lld not found", handle);
-        return nullptr;
-    }
-    LOGI("processImage realcugan instance: handle = %lld noise=%d scale=%d syncgap=%d prepadding=%d tilesize=%d",
-         handle, inst->noise, inst->scale, inst->syncgap, inst->prepadding, inst->tilesize);
-
-    // 1) 从 Java 拿到压缩后的字节
-    jsize length = env->GetArrayLength(imageData);
-    jbyte *buffer = env->GetByteArrayElements(imageData, nullptr);
-
-    int w = 0, h = 0, c = 0;
-    unsigned char *pixeldata = nullptr;
-
-    // 2) 先尝试 WebP
-    pixeldata = webp_load(reinterpret_cast<unsigned char *>(buffer), length, &w, &h, &c);
-
-    // 3) 回退到 PNG/JPEG
-    if (!pixeldata) {
-        pixeldata = stbi_load_from_memory(
-                reinterpret_cast<unsigned char *>(buffer),
-                length, &w, &h, &c, 0
-        );
-        if (!pixeldata) {
-            LOGE("processImage: not webp nor png/jpeg");
-            env->ReleaseByteArrayElements(imageData, buffer, JNI_ABORT);
-            return nullptr;
-        }
+        LOGE("nativeProcessBitmap: instance of handle %lld not found", handle);
+        return JNI_FALSE;
     }
 
-    // —— 强制把灰度/灰度+Alpha 转成 3/4 通道 ————————————
-    if (c == 1 || c == 2) {
-        // free 上一次的解码结果
-        free(pixeldata);
-        // 重新走一次 stb_image，指定通道数
-        int want_chan = (c == 1 ? 3 : 4);
-        pixeldata = stbi_load_from_memory(
-                reinterpret_cast<unsigned char *>(buffer),
-                length, &w, &h, &c, want_chan
-        );
-        c = want_chan; // 更新 c
-        if (!pixeldata) {
-            LOGE("processImage: re-stbi_load_from_memory failed");
-            env->ReleaseByteArrayElements(imageData, buffer, JNI_ABORT);
-            return nullptr;
-        }
+    AndroidBitmapInfo inInfo{}, outInfo{};
+    void *inPix = nullptr;
+    void *outPix = nullptr;
+
+    if (!lockBitmapRGBA8888(env, inBitmap, &inInfo, &inPix)) return JNI_FALSE;
+    if (!lockBitmapRGBA8888(env, outBitmap, &outInfo, &outPix)) {
+        unlockBitmap(env, inBitmap);
+        return JNI_FALSE;
     }
 
-    // 4) 现在可以释放 Java 的 byte[]
-    env->ReleaseByteArrayElements(imageData, buffer, JNI_ABORT);
-
-    // 5) 构造输入 Mat
-    ncnn::Mat in_mat(w, h, (void *) pixeldata, (size_t) c, c);
-
-    int scale = inst->scale;
-    // 6) 构造输出 Mat
-    ncnn::Mat out_mat(w * scale, h * scale, (size_t) in_mat.elemsize, (int) in_mat.elemsize);
-
-    // 7) 运行模型
-    // ---- Thread-safe progress callback (ProgressListener.onProgress(float)) ----
-    ProgressCallback* pcb = nullptr;
+    bool ok = true;
+    ProgressCallback *pcb = nullptr;
     std::function<void(float)> progressCb; // empty by default
 
     if (onProgressFunction) {
         pcb = new ProgressCallback();
         env->GetJavaVM(&pcb->vm);
-
-        // Promote the ProgressListener object to a GlobalRef
         pcb->cbGlobal = env->NewGlobalRef(onProgressFunction);
         jclass cbCls = env->GetObjectClass(onProgressFunction);
-
-        // Expect a method: void onProgress(float)
         pcb->midOnProgressF = env->GetMethodID(cbCls, "onProgress", "(F)V");
         env->DeleteLocalRef(cbCls);
-
         if (!pcb->midOnProgressF) {
-            LOGW("ProgressListener does not implement void onProgress(float); progress will be ignored.");
+            LOGW("ProgressListener missing void onProgress(float); progress ignored.");
         } else {
-            // Lambda that is safe to call from any thread used by ncnn/RealCUGAN
             progressCb = [pcb](float percent) { call_progress(pcb, percent); };
         }
     }
 
     try {
-        LOGI("processImage: processing");
-        if (inst->process(in_mat, out_mat, progressCb) != 0) {
-            LOGE("processImage: model process failed");
-            free(in_mat);
-            free(out_mat);
-            if (pcb) {
-                env->DeleteGlobalRef(pcb->cbGlobal);
-                delete pcb;
-                pcb = nullptr;
-            }
-            return nullptr;
+        const int w = static_cast<int>(inInfo.width);
+        const int h = static_cast<int>(inInfo.height);
+
+        // Debug: verify dimensions and strides to catch potential mismatch early
+        LOGI("nativeProcessBitmap: in=%dx%d stride=%u, out=%dx%d stride=%u, channels=%d, scale(inst)=%d",
+             w, h, (unsigned) inInfo.stride, (int) outInfo.width, (int) outInfo.height,
+             (unsigned) outInfo.stride,
+             4, inst->scale);
+        if ((int) outInfo.width != w * inst->scale || (int) outInfo.height != h * inst->scale) {
+            LOGE("nativeProcessBitmap: outBitmap size mismatch: expected %dx%d, got %dx%d",
+                 w * inst->scale, h * inst->scale, (int) outInfo.width, (int) outInfo.height);
+            ok = false;
         }
-        free(pixeldata);
-        LOGI("processImage: process ends");
-        if (pcb) {
-            env->DeleteGlobalRef(pcb->cbGlobal);
-            delete pcb;
-            pcb = nullptr;
+        if (!ok) {
+            throw std::runtime_error("Output Bitmap size mismatch");
+        }
+
+        // NOTE:
+        // realcugan.cpp 的 CPU 路径期望 inimage.data 指向的是 **紧凑连续的交错像素**(RGB/RGBA)，
+        // 并通过 from_pixels_roi(pixeldata, PIXEL_..., w, h, ...) 自己再转 planar。
+        // 因此，这里不能直接传入带 stride 的 Bitmap 像素，也不能先 from_pixels 成为 planar。
+        // 我们拷贝一份去除 stride 的紧凑缓冲，再用外部 packed Mat 包一层：elemsize=1, elempack=channels。
+
+        const int channels = 4; // lock 限定为 RGBA_8888
+        const int in_stride_bytes = static_cast<int>(inInfo.stride);
+        const int tight_row_bytes = w * channels; // 交错紧凑：每行 w * 4 字节
+        const size_t tight_size = (size_t) tight_row_bytes * h;
+
+        auto *interleaved_tight = (unsigned char *) malloc(tight_size);
+        if (!interleaved_tight) {
+            LOGE("nativeProcessBitmap: OOM allocating %zu bytes for input", tight_size);
+            ok = false;
+        }
+
+        if (ok) {
+            const auto *src = static_cast<const unsigned char *>(inPix);
+            for (int y = 0; y < h; y++) {
+                // 把每一行从 Bitmap 的 stride 区域拷到紧凑缓冲
+                memcpy(interleaved_tight + (size_t) y * tight_row_bytes,
+                       src + (size_t) y * in_stride_bytes,
+                       tight_row_bytes);
+            }
+
+            // 用外部 packed image 的构造：elemsize=1(u8), elempack=channels(3/4)
+            ncnn::Mat in = ncnn::Mat(w, h, (void *) interleaved_tight, (size_t) 1u, channels);
+
+            // 以 outBitmap 的实际尺寸为准，避免 scale 不一致导致越界
+            const int outW = static_cast<int>(outInfo.width);
+            const int outH = static_cast<int>(outInfo.height);
+
+            // 为输出分配一块紧凑交错缓冲（我们自己持有，避免 allocator/packing 差异）
+            const int out_tight_row_bytes = outW * channels;
+            const size_t out_tight_size = (size_t) out_tight_row_bytes * outH;
+            auto *out_tight = (unsigned char *) malloc(out_tight_size);
+            if (!out_tight) {
+                LOGE("nativeProcessBitmap: OOM allocating %zu bytes for output", out_tight_size);
+                ok = false;
+            }
+
+            if (ok) {
+                // 用外部 packed image 包装输出缓冲：elemsize=1(u8), elempack=channels(3/4)
+                ncnn::Mat out(outW, outH, (void *) out_tight, (size_t) 1u, channels);
+
+                int ret = inst->process(in, out, progressCb);
+                if (ret != 0) {
+                    LOGE("nativeProcessBitmap: RealCUGAN::process failed (%d)", ret);
+                    ok = false;
+                } else {
+                    // 将紧凑交错输出按 Bitmap 的 stride 写回
+                    auto *dst = static_cast<unsigned char *>(outPix);
+                    const int out_stride_bytes = static_cast<int>(outInfo.stride);
+                    for (int y = 0; y < outH; y++) {
+                        memcpy(dst + (size_t) y * out_stride_bytes,
+                               out_tight + (size_t) y * out_tight_row_bytes,
+                               out_tight_row_bytes);
+                    }
+                }
+
+                free(out_tight);
+            }
+
+            // 释放输入临时缓冲
+            free(interleaved_tight);
         }
     } catch (const std::exception &e) {
         env->ThrowNew(runtimeExc, e.what());
-        if (pcb) {
-            env->DeleteGlobalRef(pcb->cbGlobal);
-            delete pcb;
-            pcb = nullptr;
-        }
-        return nullptr;
+        ok = false;
     } catch (...) {
-        env->ThrowNew(runtimeExc, "Unknown native error in RealCUGAN");
-        if (pcb) {
-            env->DeleteGlobalRef(pcb->cbGlobal);
-            delete pcb;
-            pcb = nullptr;
-        }
-        return nullptr;
+        env->ThrowNew(runtimeExc, "Unknown native error in nativeProcessBitmap");
+        ok = false;
     }
 
-    // 8) 打包成 Java byte[]
-    int out_w = out_mat.w;
-    int out_h = out_mat.h;
-    int out_c = out_mat.elempack;
-    jsize outLen = out_w * out_h * out_c;
-
-    jbyteArray outArray = env->NewByteArray(outLen);
-    env->SetByteArrayRegion(outArray, 0, outLen, reinterpret_cast<jbyte *>(out_mat.data));
-
-    LOGI("processImage: complete. output size: %d x %d elempack: %d", out_w, out_h, out_c);
-
-    return outArray;
+    if (pcb) {
+        env->DeleteGlobalRef(pcb->cbGlobal);
+        delete pcb;
+        pcb = nullptr;
+    }
+    unlockBitmap(env, outBitmap);
+    unlockBitmap(env, inBitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
