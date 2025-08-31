@@ -95,6 +95,7 @@ int RealCUGAN::load(const std::string &parampath, const std::string &modelpath)
 {
     net.opt.use_vulkan_compute = (vkdev != nullptr);
     net.opt.use_fp16_packed = true;
+    net.opt.lightmode = true;
 
     if (vkdev) {
         // Use device capability flags for safer defaults
