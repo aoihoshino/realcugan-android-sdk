@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notif_channel_name">RealCUGAN 处理</string>
+    <string name="notif_subtext">RealCUGAN</string>
+    <string name="notif_initial_title">RealCUGAN 待命</string>
+    <string name="notif_initial_text">准备处理图像…</string>
+    <string name="notif_processing">处理中：%1$d%%</string>
+    <string name="notif_done">处理完成</string>
+    <string name="notif_failed">处理失败</string>
+    <string name="notif_title_processing_fallback">正在处理图片</string>
+</resources>

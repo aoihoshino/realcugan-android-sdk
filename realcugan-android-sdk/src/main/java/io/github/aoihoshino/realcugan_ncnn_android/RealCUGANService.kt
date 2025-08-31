@@ -1,13 +1,21 @@
 package io.github.aoihoshino.realcugan_ncnn_android
 
 import RealCUGANOption
-import android.app.*
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
@@ -28,12 +36,15 @@ class RealCUGANService : Service() {
     // 通知相关
     private var notificationsEnabled: Boolean = true
     private var builder: NotificationCompat.Builder? = null
-    private var currentTitle: String = "RealCUGAN 待命"
-    private var currentText: String = "准备处理图像..."
+    private var currentTitle: String = ""
+    private var currentText: String = ""
 
     override fun onCreate() {
         super.onCreate()
         ensureChannel()
+        // 初始化通知标题/文案（改用资源）
+        currentTitle = getString(R.string.notif_initial_title)
+        currentText = getString(R.string.notif_initial_text)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -82,7 +93,7 @@ class RealCUGANService : Service() {
                 }
 
                 // 通知：开始任务
-                val title = displayName ?: "正在处理图片"
+                val title = displayName ?: getString(R.string.notif_title_processing_fallback)
                 updateNotification(titleText = title, percent = 0f, active = true)
 
                 // 复合进度回调：既更新通知，也转发给调用方
@@ -97,13 +108,18 @@ class RealCUGANService : Service() {
                     val bmp = inst.process(imageData, composite)
                     onDone(Result.success(bmp))
                     // 完成：进度 100% 并变更文案
-                    updateNotification(titleText = title, percent = 100f, active = false, done = true)
+                    updateNotification(
+                        titleText = title,
+                        percent = 100f,
+                        active = false,
+                        done = true
+                    )
                 } catch (t: Throwable) {
                     onDone(Result.failure(t))
                     // 失败：标记失败文案
                     if (notificationsEnabled) {
-                        builder?.setContentTitle("$title · 失败")
-                            ?.setContentText(t.message ?: "处理失败")
+                        builder?.setContentTitle("$title · ${getString(R.string.notif_failed)}")
+                            ?.setContentText(t.message ?: getString(R.string.notif_failed))
                             ?.setProgress(0, 0, false)
                         notifyNow()
                     }
@@ -138,7 +154,9 @@ class RealCUGANService : Service() {
         if (Build.VERSION.SDK_INT >= 26) {
             val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             val ch = NotificationChannel(
-                CHANNEL_ID, "RealCUGAN 处理", NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID,
+                getString(R.string.notif_channel_name),
+                NotificationManager.IMPORTANCE_LOW
             )
             nm.createNotificationChannel(ch)
         }
@@ -153,7 +171,7 @@ class RealCUGANService : Service() {
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSubText("RealCUGAN")
+                .setSubText(getString(R.string.notif_subtext))
         }
         builder!!
             .setContentTitle(currentTitle)
@@ -186,16 +204,17 @@ class RealCUGANService : Service() {
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSubText("RealCUGAN")
+                .setSubText(getString(R.string.notif_subtext))
         }
 
         currentTitle = titleText
-        currentText = if (done) "处理完成" else "处理中：$pInt%"
+        currentText =
+            if (done) getString(R.string.notif_done) else getString(R.string.notif_processing, pInt)
 
         builder!!
             .setContentTitle(currentTitle)
             .setContentText(currentText)
-            .setSubText("RealCUGAN")
+            .setSubText(getString(R.string.notif_subtext))
             .setCategory(Notification.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(active && !done)

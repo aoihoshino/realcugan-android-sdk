@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notif_channel_name">RealCUGAN Processing</string>
+    <string name="notif_subtext">RealCUGAN</string>
+    <string name="notif_initial_title">RealCUGAN Idle</string>
+    <string name="notif_initial_text">Preparing to process…</string>
+    <string name="notif_processing">Processing: %1$d%%</string>
+    <string name="notif_done">Completed</string>
+    <string name="notif_failed">Failed</string>
+    <string name="notif_title_processing_fallback">Processing image</string>
+</resources>
