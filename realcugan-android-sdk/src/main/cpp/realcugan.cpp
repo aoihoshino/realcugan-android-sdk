@@ -93,11 +93,21 @@ int RealCUGAN::load(const std::wstring& parampath, const std::wstring& modelpath
 int RealCUGAN::load(const std::string &parampath, const std::string &modelpath)
 #endif
 {
-    net.opt.use_vulkan_compute = vkdev ? true : false;
+    net.opt.use_vulkan_compute = (vkdev != nullptr);
     net.opt.use_fp16_packed = true;
-    net.opt.use_fp16_storage = vkdev ? true : false;
-    net.opt.use_fp16_arithmetic = false;
-    net.opt.use_int8_storage = true;
+
+    if (vkdev) {
+        // Use device capability flags for safer defaults
+        const auto &info = vkdev->info;
+        net.opt.use_fp16_storage = info.support_fp16_storage();
+        net.opt.use_fp16_arithmetic = info.support_fp16_arithmetic();
+    } else {
+        net.opt.use_fp16_storage = false;
+        net.opt.use_fp16_arithmetic = false;
+    }
+
+    // Only enable int8 storage when using int8 quantized models; default off for stability
+    net.opt.use_int8_storage = false;
 
     net.set_vulkan_device(vkdev);
 
