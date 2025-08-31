@@ -12,6 +12,8 @@
 #include "stb_image.h"
 #include "stb_image_write.h"
 #include "webp_image.h"
+#include <thread>
+#include <algorithm>
 
 #define LOG_TAG "RealCUGAN_NCNN_ANDROID_NATIVE"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -147,7 +149,7 @@ RealCUGAN *find_realcugan(jlong handle) {
 }
 
 static long read_memavailable_kb() {
-    FILE* f = fopen("/proc/meminfo", "r");
+    FILE *f = fopen("/proc/meminfo", "r");
     if (!f) return -1;
     char line[256];
     long kb = -1;
@@ -186,7 +188,7 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
     int scale = scaleObj ? env->CallIntMethod(scaleObj, intValueID) : 2;
     int syncgap = syncgapObj ? env->CallIntMethod(syncgapObj, intValueID) : 3;
     bool ttaMode = ttaModeObj && env->CallBooleanMethod(ttaModeObj, boolValueID);
-    int numThreads = 1;
+    int numThreads = std::min(4, (int) std::thread::hardware_concurrency());
 
     std::string modelDir;
     if (modelNameJ) {
@@ -332,19 +334,20 @@ Java_io_github_aoihoshino_realcugan_1ncnn_1android_RealCUGAN_nativeInitialize(
             } else if (scale == 3) {
                 if (heapMB > 3300) tilesize = 400;
                 else if (heapMB > 1900) tilesize = 300;
-                else if (heapMB > 950)  tilesize = 200;
-                else if (heapMB > 320)  tilesize = 100;
+                else if (heapMB > 950) tilesize = 200;
+                else if (heapMB > 320) tilesize = 100;
                 else tilesize = 32;
             } else { // scale == 4
                 if (heapMB > 1690) tilesize = 400;
-                else if (heapMB > 980)  tilesize = 300;
-                else if (heapMB > 530)  tilesize = 200;
-                else if (heapMB > 240)  tilesize = 100;
+                else if (heapMB > 980) tilesize = 300;
+                else if (heapMB > 530) tilesize = 200;
+                else if (heapMB > 240) tilesize = 100;
                 else tilesize = 32;
             }
 
             heap = static_cast<uint32_t>(heapMB);
-            LOGI("Qualcomm budget: heapMB=%.1fMB -> tilesize=%d (scale=%d)", heapMB, tilesize, scale);
+            LOGI("Qualcomm budget: heapMB=%.1fMB -> tilesize=%d (scale=%d)", heapMB, tilesize,
+                 scale);
         } else {
             heap = vkdev->get_heap_budget();
             if (scale == 2) {
