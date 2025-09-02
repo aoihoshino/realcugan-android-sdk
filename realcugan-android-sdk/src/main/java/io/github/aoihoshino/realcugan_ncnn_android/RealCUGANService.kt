@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
@@ -25,6 +27,8 @@ class RealCUGANService : Service() {
         const val CHANNEL_ID = "realcugan_fg"
         const val NOTIF_ID = 1001
         const val EXTRA_ENABLE_NOTIFICATION = "EXTRA_ENABLE_NOTIFICATION"
+        const val EXTRA_MAX_CONCURRENT = "EXTRA_MAX_CONCURRENT"   // Int, default 1
+        const val EXTRA_QUEUE_ENABLED = "EXTRA_QUEUE_ENABLED"    // Boolean, default true
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -38,6 +42,11 @@ class RealCUGANService : Service() {
     private var builder: NotificationCompat.Builder? = null
     private var currentTitle: String = ""
     private var currentText: String = ""
+
+    // 并发闸（Kotlin 侧）
+    private var maxConcurrent: Int = 1
+    private var queueEnabled: Boolean = true
+    private var gate: Semaphore = Semaphore(maxConcurrent)
 
     override fun onCreate() {
         super.onCreate()
@@ -55,6 +64,15 @@ class RealCUGANService : Service() {
             // 不启用前台：清掉可能已有的前台状态
             stopForeground(STOP_FOREGROUND_REMOVE)
         }
+        // —— 并发闸配置 ——
+        val newMax = (intent?.getIntExtra(EXTRA_MAX_CONCURRENT, maxConcurrent)
+            ?: maxConcurrent).coerceAtLeast(1)
+        val newQueue = intent?.getBooleanExtra(EXTRA_QUEUE_ENABLED, queueEnabled) ?: queueEnabled
+        if (newMax != maxConcurrent || newQueue != queueEnabled) {
+            maxConcurrent = newMax
+            queueEnabled = newQueue
+            gate = Semaphore(maxConcurrent)
+        }
         return START_STICKY
     }
 
@@ -65,11 +83,128 @@ class RealCUGANService : Service() {
         super.onDestroy()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+
+        when {
+            // 应用进入后台：尽量降并发，必要时退出前台
+            level == TRIM_MEMORY_UI_HIDDEN -> {
+                maxConcurrent = 1
+                gate = Semaphore(maxConcurrent)
+                // 非必须：若无任务，退出前台
+                if (tasks.isEmpty()) {
+                    try {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } catch (_: Throwable) {
+                    }
+                    (getSystemService(NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(
+                        NOTIF_ID
+                    )
+                }
+            }
+
+            // 系统要主动回收内存（后台/中度/完全）：优先释放
+            level >= TRIM_MEMORY_BACKGROUND -> {
+                if (tasks.isEmpty()) {
+                    try {
+                        rcg?.release()
+                    } catch (_: Throwable) {
+                    }
+                    rcg = null
+                    try {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } catch (_: Throwable) {
+                    }
+                    (getSystemService(NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(
+                        NOTIF_ID
+                    )
+                    stopSelf()
+                } else {
+                    maxConcurrent = 1
+                    gate = Semaphore(maxConcurrent)
+                }
+            }
+
+            else -> {
+                // 兼容旧版（已弃用）的 RUNNING_* 等级：仅降并发，不做重操作
+                @Suppress("DEPRECATION")
+                val runningLow = level == TRIM_MEMORY_RUNNING_LOW ||
+                        level == TRIM_MEMORY_RUNNING_CRITICAL ||
+                        level == TRIM_MEMORY_RUNNING_MODERATE
+                if (runningLow) {
+                    maxConcurrent = 1
+                    gate = Semaphore(maxConcurrent)
+                }
+            }
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        // 与 TRIM_* 一致：若空闲则尽量释放
+        if (tasks.isEmpty()) {
+            try {
+                rcg?.release()
+            } catch (_: Throwable) {
+            }
+            rcg = null
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (_: Throwable) {
+            }
+            (getSystemService(NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(NOTIF_ID)
+            stopSelf()
+        } else {
+            maxConcurrent = 1
+            gate = Semaphore(maxConcurrent)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder = LocalBinder()
 
     inner class LocalBinder : Binder() {
         suspend fun init(opt: RealCUGANOption) {
             if (rcg == null) rcg = RealCUGAN.create(opt)
+        }
+
+        fun configureConcurrency(max: Int, queue: Boolean) {
+            val safeMax = max.coerceAtLeast(1)
+            maxConcurrent = safeMax
+            queueEnabled = queue
+            gate = Semaphore(safeMax)
+        }
+
+        fun concurrencyInfo(): Pair<Int, Boolean> = maxConcurrent to queueEnabled
+
+        /**
+         * 主动释放：可选取消正在运行的任务，并释放 native 实例与前台。
+         */
+        fun dispose(cancelRunning: Boolean = false) {
+            // 不再接受新的并发
+            maxConcurrent = 1
+            gate = Semaphore(1)
+
+            if (cancelRunning) {
+                tasks.keys.toList().forEach { id ->
+                    try {
+                        tasks[id]?.cancel()
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+
+            try {
+                rcg?.release()
+            } catch (_: Throwable) {
+            }
+            rcg = null
+
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (_: Throwable) {
+            }
+            (getSystemService(NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(NOTIF_ID)
+            stopSelf()
         }
 
         /**
@@ -83,13 +218,25 @@ class RealCUGANService : Service() {
             imageData: ByteArray,
             displayName: String? = null,
             listener: ProgressListener? = null,
-            onDone: (Result<android.graphics.Bitmap>) -> Unit
+            onDone: (Result<Bitmap>) -> Unit
         ): Int {
             val id = nextTaskId++
             val job = scope.launch {
                 val inst = rcg ?: run {
                     onDone(Result.failure(IllegalStateException("Service not initialized")))
                     return@launch
+                }
+
+                if (queueEnabled) {
+                    // 阻塞等待可用槽位
+                    gate.acquire()
+                } else {
+                    // 不排队：满额即失败
+                    // 不排队：满额即失败
+                    if (!gate.tryAcquire()) {
+                        onDone(Result.failure(IllegalStateException("Too many concurrent tasks")))
+                        return@launch
+                    }
                 }
 
                 // 通知：开始任务
@@ -124,6 +271,11 @@ class RealCUGANService : Service() {
                         notifyNow()
                     }
                 } finally {
+                    // 释放并发槽位
+                    try {
+                        gate.release()
+                    } catch (_: Throwable) {
+                    }
                     tasks.remove(id)
                 }
             }
