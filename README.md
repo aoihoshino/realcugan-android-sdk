@@ -28,7 +28,7 @@ allprojects {
 }
 ```
 
-添加依赖：
+添加依赖（暂时不可用）：
 
 ```groovy
 dependencies {
