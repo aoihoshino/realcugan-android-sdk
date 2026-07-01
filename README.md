@@ -1,26 +1,22 @@
 # RealCUGAN Android SDK
 
-RealCUGAN Android SDK is an Android library and sample app for running
-RealCUGAN image upscaling locally on mobile devices. It wraps an ncnn/Vulkan
-native backend with a Kotlin-friendly API, lifecycle-aware cleanup, and an
-optional foreground Service for long-running jobs.
+RealCUGAN Android SDK 是一个面向 Android 的 RealCUGAN 图片超分 SDK 与示例应用。它基于 ncnn + Vulkan 的本地推理后端，提供 Kotlin 友好的调用接口、明确的资源释放流程，以及适合长任务的前台 Service 封装。
 
-The native pipeline is based on the Real-CUGAN ncnn/Vulkan implementation by
-nihui, adapted for Android deployment and mobile resource constraints.
+底层推理流程基于 nihui 的 Real-CUGAN ncnn/Vulkan 实现，并针对 Android 设备的内存、显存和后台任务场景做了封装。
 
-## Features
+## 功能特性
 
-- RealCUGAN upscaling through ncnn + Vulkan, without CUDA or PyTorch.
-- Mobile-oriented defaults for CPU and Qualcomm/Adreno GPU devices.
-- Strict option validation for `noise`, `scale`, `syncgap`, and `gpuId`.
-- Automatic tile sizing to reduce device-specific black-output failures.
-- Foreground Service wrapper with progress notification support.
-- Binder API for `process()`, `configureConcurrency()`, and `dispose()`.
-- Explicit native and Vulkan resource cleanup through `release()` / `dispose()`.
+- 基于 ncnn + Vulkan 运行 RealCUGAN 超分，不依赖 CUDA 或 PyTorch 运行时。
+- 面向移动端设备调整默认配置，适配 CPU 与 Qualcomm / Adreno GPU 场景。
+- 对 `noise`、`scale`、`syncgap`、`gpuId` 等参数做范围校验。
+- 自动调整 tile 大小，降低部分设备输出黑图的概率。
+- 提供前台 Service 封装，可在后台处理任务并显示进度通知。
+- 提供 Binder API：`process()`、`configureConcurrency()`、`dispose()`。
+- 通过 `release()` / `dispose()` 显式释放 native 与 Vulkan 资源。
 
-## Installation
+## 安装
 
-Add JitPack to your repositories:
+添加 JitPack 仓库：
 
 ```groovy
 allprojects {
@@ -32,7 +28,7 @@ allprojects {
 }
 ```
 
-Add the dependency:
+添加依赖：
 
 ```groovy
 dependencies {
@@ -40,9 +36,9 @@ dependencies {
 }
 ```
 
-## Basic Usage
+## 基础用法
 
-Create an engine:
+创建推理实例：
 
 ```kotlin
 val opts = RealCUGANOption(
@@ -58,28 +54,27 @@ val opts = RealCUGANOption(
 val engine = RealCUGAN.create(opts)
 ```
 
-Run processing:
+执行处理：
 
 ```kotlin
 val output = engine.process(inputBytes) { percent ->
-    // progress callback
+    // 进度回调
 }
 
 imageView.setImageBitmap(output)
 ```
 
-Release native resources when finished:
+使用结束后释放资源：
 
 ```kotlin
 engine.release()
 ```
 
-## Foreground Service
+## 前台 Service
 
-Use the foreground Service wrapper when processing may continue while the app is
-in the background or when progress should be shown in a notification.
+如果任务可能在后台持续运行，或者需要在通知栏显示进度，可以使用内置的前台 Service 封装。
 
-Start the service:
+启动 Service：
 
 ```kotlin
 val intent = Intent(this, RealCUGANService::class.java)
@@ -90,7 +85,7 @@ val intent = Intent(this, RealCUGANService::class.java)
 ContextCompat.startForegroundService(this, intent)
 ```
 
-Bind and submit work:
+绑定并提交任务：
 
 ```kotlin
 bindService(intent, conn, Context.BIND_AUTO_CREATE)
@@ -101,7 +96,7 @@ binder.process(bytes, "image.png", listener) { result ->
 }
 ```
 
-Clean up:
+回收 Service：
 
 ```kotlin
 binder.dispose()
@@ -109,8 +104,8 @@ unbindService(conn)
 stopService(intent)
 ```
 
-## Notes
+## 注意事项
 
-- Prefer a single engine instance per process to avoid GPU memory contention.
-- Always call `release()` or `dispose()` after batch jobs or stress tests.
-- Test memory behavior on target devices before processing large batches.
+- 建议同一进程内尽量只保留一个推理实例，避免 GPU 显存竞争。
+- 批量处理或压测结束后务必调用 `release()` 或 `dispose()`。
+- 大批量处理前建议先在目标设备上测试内存和显存表现。
